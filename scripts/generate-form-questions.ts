@@ -217,8 +217,14 @@ function exportFormMapping() {
     Logger.log(output);
     Logger.log('✅ Скопируйте JSON выше в: public/form-character-mapping.json');
   } catch (error) {
-    Logger.log('❌ Ошибка: ' + error);
-    Logger.log(error.stack);
+    const msg = String(error);
+    if (msg.indexOf('401') !== -1) {
+      Logger.log('❌ Ошибка 401: форма не опубликована или недоступна.');
+      Logger.log('   Откройте форму → Настройки → убедитесь что форма опубликована (не в черновике).');
+    } else {
+      Logger.log('❌ Ошибка: ' + error);
+      Logger.log(error.stack);
+    }
   }
 }
 
