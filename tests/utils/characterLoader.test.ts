@@ -21,24 +21,32 @@ const mockCharacters: Character[] = [
     name: 'Nahida',
     element: 'dendro',
     rarity: 5,
+    imageUrl: 'assets/avatars/nahida.webp',
+    group: 'legendary',
   },
   {
     id: 'fischl',
     name: 'Fischl',
     element: 'electro',
     rarity: 4,
+    imageUrl: 'assets/avatars/fischl.webp',
+    group: 'epic',
   },
   {
     id: 'kazuha',
     name: 'Kazuha',
     element: 'anemo',
     rarity: 5,
+    imageUrl: 'assets/avatars/kazuha.webp',
+    group: 'legendary',
   },
   {
     id: 'barbara',
     name: 'Barbara',
     element: 'hydro',
     rarity: 4,
+    imageUrl: 'assets/avatars/barbara.webp',
+    group: 'epic',
   },
 ];
 

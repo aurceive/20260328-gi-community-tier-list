@@ -2,11 +2,14 @@
  * Script to generate Google Apps Script for creating a Checkbox Grid in Google Form.
  *
  * The form uses ONE Checkbox Grid question where:
- * - Rows    = characters (118 rows, Traveler variants named "Traveler (Element)")
+ * - Rows    = characters (filtered by group)
  * - Columns = tier labels S / A / B / C / D
  *
  * Usage:
- * npm run scripts:generate-form-questions
+ * npm run scripts:generate-form-questions                   # epic (default)
+ * npm run scripts:generate-form-questions -- --group epic
+ * npm run scripts:generate-form-questions -- --group legendary
+ * npm run scripts:generate-form-questions -- --group all
  *
  * Outputs:
  * - scripts/google-form-importer.gs (Google Apps Script)
@@ -15,28 +18,60 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
+type CharacterGroup = 'legendary' | 'epic';
+
 interface Character {
   id: string;
   name: string;
   element: string;
   rarity: number;
+  /** Explicit group override (used for Travelers) */
+  group?: CharacterGroup;
+}
+
+/** Derive group: explicit JSON field wins; fallback to rarity */
+function getGroup(c: Character): CharacterGroup {
+  if (c.group === 'epic' || c.group === 'legendary') return c.group;
+  return c.rarity === 5 ? 'legendary' : 'epic';
+}
+
+function parseGroupArg(): CharacterGroup | 'all' {
+  const idx = process.argv.indexOf('--group');
+  if (idx !== -1 && process.argv[idx + 1]) {
+    const val = process.argv[idx + 1].toLowerCase();
+    if (val === 'legendary' || val === 'epic' || val === 'all') return val;
+    console.error(`❌ Unknown --group value "${val}". Use: epic | legendary | all`);
+    process.exit(1);
+  }
+  return 'epic'; // default
 }
 
 function generateFormQuestions() {
   try {
+    const groupFilter = parseGroupArg();
     const charactersPath = join(process.cwd(), 'public', 'data', 'characters.json');
-    const characters: Character[] = JSON.parse(readFileSync(charactersPath, 'utf-8'));
+    const allCharacters: Character[] = JSON.parse(readFileSync(charactersPath, 'utf-8'));
 
-    if (!characters || characters.length === 0) {
+    if (!allCharacters || allCharacters.length === 0) {
       console.error('❌ No characters found in characters.json');
       process.exit(1);
     }
 
-    const gsScript = generateGoogleAppsScript(characters);
+    const characters =
+      groupFilter === 'all'
+        ? allCharacters
+        : allCharacters.filter((c) => getGroup(c) === groupFilter);
+
+    if (characters.length === 0) {
+      console.error(`❌ No characters found for group "${groupFilter}"`);
+      process.exit(1);
+    }
+
+    const gsScript = generateGoogleAppsScript(characters, groupFilter);
     const gsPath = join(process.cwd(), 'scripts', 'google-form-importer.gs');
     writeFileSync(gsPath, gsScript);
 
-    console.log(`✅ Generated Checkbox Grid script for ${characters.length} characters`);
+    console.log(`✅ Generated Checkbox Grid script for ${characters.length} characters (group: ${groupFilter})`);
     console.log(`📁 Output: ${gsPath}`);
     console.log(`\nWorkflow:`);
     console.log(`  1. Open your Google Form → Tools → Script editor`);
@@ -51,7 +86,7 @@ function generateFormQuestions() {
   }
 }
 
-function generateGoogleAppsScript(characters: Character[]): string {
+function generateGoogleAppsScript(characters: Character[], groupFilter: string): string {
   // Embed only what the GAS needs at runtime
   const charData = characters.map((c) => ({
     id: c.id,
@@ -64,7 +99,9 @@ function generateGoogleAppsScript(characters: Character[]): string {
   return `/**
  * Google Apps Script для Google Form — Tier List (Checkbox Grid)
  * АВТОМАТИЧЕСКИ СГЕНЕРИРОВАН — НЕ РЕДАКТИРУЙТЕ ВРУЧНУЮ
- * Пересгенерируйте: npm run scripts:generate-form-questions
+ * Пересгенерируйте: npm run scripts:generate-form-questions -- --group ${groupFilter}
+ *
+ * Группа персонажей: ${groupFilter} (${characters.length} персонажей)
  *
  * WORKFLOW:
  * 1. Откройте Google Form → три точки (⋮) → Редактор скриптов

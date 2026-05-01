@@ -1,4 +1,9 @@
 /**
+ * Character group — legendary (5★) or epic (4★, plus Travelers and Aloy)
+ */
+export type CharacterGroup = 'legendary' | 'epic';
+
+/**
  * Represents a playable character in Genshin Impact
  */
 export interface Character {
@@ -9,6 +14,8 @@ export interface Character {
   imageUrl: string;
   /** When true, renders the card at 2:1 aspect ratio instead of 1:1 */
   wideIcon?: boolean;
+  /** Character group derived from rarity, with explicit override in JSON for special cases */
+  group: CharacterGroup;
 }
 
 /**

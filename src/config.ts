@@ -2,6 +2,7 @@
  * Application configuration and constants
  * 
  * This file contains all configuration used throughout the application:
+ * - Character groups
  * - Tier definitions
  * - Game elements and their emoji/colors
  * - API endpoints and OAuth settings
@@ -9,6 +10,25 @@
  * - Local storage keys
  * - UI constants
  */
+
+import type { CharacterGroup } from '@/types';
+
+// ============================================================================
+// CHARACTER GROUPS
+// ============================================================================
+
+/**
+ * Available character groups.
+ * - legendary: 5★ non-traveler characters
+ * - epic:      4★ characters, all Traveler variants, and Aloy
+ */
+export const CHARACTER_GROUPS = ['legendary', 'epic'] as const;
+
+/**
+ * Active character groups for the current survey.
+ * Change to ['legendary'], ['epic'], or ['legendary', 'epic'].
+ */
+export const ACTIVE_CHARACTER_GROUPS: CharacterGroup[] = ['epic'];
 
 // ============================================================================
 // TIER DEFINITIONS

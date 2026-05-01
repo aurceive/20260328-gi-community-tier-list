@@ -341,7 +341,8 @@
     "element": "anemo",
     "rarity": 5,
     "imageUrl": "assets/travelers/traveler-anemo.png",
-    "wideIcon": true
+    "wideIcon": true,
+    "group": "epic"
   },
   {
     "id": "traveler-dendro",
@@ -349,7 +350,8 @@
     "element": "dendro",
     "rarity": 5,
     "imageUrl": "assets/travelers/traveler-dendro.png",
-    "wideIcon": true
+    "wideIcon": true,
+    "group": "epic"
   },
   {
     "id": "traveler-electro",
@@ -357,7 +359,8 @@
     "element": "electro",
     "rarity": 5,
     "imageUrl": "assets/travelers/traveler-electro.png",
-    "wideIcon": true
+    "wideIcon": true,
+    "group": "epic"
   },
   {
     "id": "traveler-geo",
@@ -365,7 +368,8 @@
     "element": "geo",
     "rarity": 5,
     "imageUrl": "assets/travelers/traveler-geo.png",
-    "wideIcon": true
+    "wideIcon": true,
+    "group": "epic"
   },
   {
     "id": "traveler-hydro",
@@ -373,7 +377,8 @@
     "element": "hydro",
     "rarity": 5,
     "imageUrl": "assets/travelers/traveler-hydro.png",
-    "wideIcon": true
+    "wideIcon": true,
+    "group": "epic"
   },
   {
     "id": "traveler-pyro",
@@ -381,7 +386,8 @@
     "element": "pyro",
     "rarity": 5,
     "imageUrl": "assets/travelers/traveler-pyro.png",
-    "wideIcon": true
+    "wideIcon": true,
+    "group": "epic"
   },
   {
     "id": "95",

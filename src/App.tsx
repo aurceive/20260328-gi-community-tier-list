@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { TierList } from '@/components/TierList';
-import { loadCharacters } from '@/utils/characterLoader';
+import { loadCharacters, filterByGroups } from '@/utils/characterLoader';
+import { ACTIVE_CHARACTER_GROUPS } from '@/config';
 import type { Character } from '@/types';
 import styles from './App.module.css';
 
@@ -16,7 +17,7 @@ function App() {
   useEffect(() => {
     loadCharacters()
       .then((chars) => {
-        setCharacters(chars);
+        setCharacters(filterByGroups(chars, ACTIVE_CHARACTER_GROUPS));
         setIsLoadingCharacters(false);
       })
       .catch((err) => {

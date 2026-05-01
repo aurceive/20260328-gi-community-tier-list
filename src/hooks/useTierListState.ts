@@ -2,210 +2,281 @@ import { useState, useCallback, useMemo } from 'react';
 import type { Character, TierList, TierKey } from '@/types';
 import { TIERS, DEBUG } from '@/config';
 
-const STORAGE_KEY = 'gi_tier_list_draft';
+/**
+ * Persisted format (v2): maps each tier key (including 'unassigned') to an
+ * ordered list of character IDs.  Using IDs (not full objects) means the
+ * stored data survives character data changes, and group-switching works
+ * correctly — IDs for inactive groups are silently skipped during derivation
+ * but kept in storage so positions are restored when those groups become active.
+ */
+interface StoredAssignments {
+  version: 2;
+  tiers: Partial<Record<TierKey, string[]>>;
+}
 
-interface TierListState {
-  tierList: TierList;
-  unassignedCharacters: Character[];
+const V2_KEY = 'gi_tier_list_v2';
+/** Legacy key used before v2 */
+const V1_KEY = 'gi_tier_list_draft';
+
+function loadStored(): StoredAssignments {
+  // Prefer v2 storage
+  const raw2 = localStorage.getItem(V2_KEY);
+  if (raw2) {
+    try {
+      const parsed = JSON.parse(raw2) as StoredAssignments;
+      if (parsed.version === 2 && parsed.tiers) return parsed;
+    } catch {
+      // fall through to migration
+    }
+  }
+
+  // Migrate from v1 (stored full Character objects)
+  const raw1 = localStorage.getItem(V1_KEY);
+  if (raw1) {
+    try {
+      const old = JSON.parse(raw1) as {
+        tierList?: Record<string, Array<{ id: string }>>;
+        unassignedCharacters?: Array<{ id: string }>;
+      };
+      if (old.tierList && old.unassignedCharacters) {
+        const tiers: Partial<Record<TierKey, string[]>> = {};
+        for (const tier of TIERS) {
+          const chars = old.tierList[tier];
+          if (Array.isArray(chars) && chars.length > 0) {
+            tiers[tier] = chars.map((c) => String(c.id));
+          }
+        }
+        const unassigned = old.unassignedCharacters;
+        if (unassigned.length > 0) {
+          tiers['unassigned'] = unassigned.map((c) => String(c.id));
+        }
+        if (DEBUG) console.log('[useTierListState] Migrated v1 → v2 localStorage format');
+        return { version: 2, tiers };
+      }
+    } catch {
+      // corrupted, start fresh
+    }
+  }
+
+  return { version: 2, tiers: {} };
+}
+
+function saveStored(assignments: StoredAssignments): void {
+  try {
+    localStorage.setItem(V2_KEY, JSON.stringify(assignments));
+    if (DEBUG) console.log('[useTierListState] Saved v2 to localStorage');
+  } catch (err) {
+    console.error('[useTierListState] Failed to save state:', err);
+  }
 }
 
 /**
- * Custom hook for managing tier list state
- * Handles character assignments, reordering, and persistence to localStorage
+ * Derive the display-ready tier list and unassigned pool from stored ID
+ * assignments and the currently active character set.
+ *
+ * Characters whose IDs exist in storage but are not in `allCharacters`
+ * (different group, removed character) are silently skipped — their stored
+ * positions are preserved for when they become active again.
+ *
+ * Characters in `allCharacters` that have no stored assignment are appended
+ * to the unassigned pool (new characters always start unassigned).
  */
-export function useTierListState(allCharacters: Character[]) {
-  // Initialize from localStorage or with all characters unassigned
-  const [state, setState] = useState<TierListState>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        if (DEBUG) console.log('[useTierListState] Loaded draft from localStorage');
-        return JSON.parse(stored);
-      } catch (err) {
-        if (DEBUG) console.warn('[useTierListState] Failed to parse stored state:', err);
+function deriveState(
+  stored: StoredAssignments,
+  allCharacters: Character[]
+): { tierList: TierList; unassignedCharacters: Character[] } {
+  const charMap = new Map(allCharacters.map((c) => [c.id, c]));
+  const placed = new Set<string>();
+
+  const tierList: TierList = { S: [], A: [], B: [], C: [], D: [] };
+
+  for (const tier of TIERS) {
+    for (const id of stored.tiers[tier] ?? []) {
+      const char = charMap.get(id);
+      if (char) {
+        tierList[tier].push(char);
+        placed.add(id);
       }
     }
+  }
 
-    // Initialize with all characters unassigned
-    const initialState: TierListState = {
-      tierList: {
-        S: [],
-        A: [],
-        B: [],
-        C: [],
-        D: [],
-      },
-      unassignedCharacters: allCharacters,
-    };
-    return initialState;
-  });
+  const unassignedCharacters: Character[] = [];
 
-  // Build a lookup map so we can enrich stored character objects with the
-  // latest data from props (e.g. imageUrl computed after the JSON loads).
-  // This replaces the old useEffect+setState sync — no extra render needed.
-  const charMap = useMemo(() => {
-    const map = new Map<string, Character>();
-    allCharacters.forEach((char) => map.set(char.id, char));
-    return map;
-  }, [allCharacters]);
-
-  const enrich = useCallback(
-    (chars: Character[]) => chars.map((c) => charMap.get(c.id) ?? c),
-    [charMap]
-  );
-
-  const enrichedTierList = useMemo<TierList>(
-    () => ({
-      S: enrich(state.tierList.S),
-      A: enrich(state.tierList.A),
-      B: enrich(state.tierList.B),
-      C: enrich(state.tierList.C),
-      D: enrich(state.tierList.D),
-    }),
-    [state.tierList, enrich]
-  );
-
-  const enrichedUnassigned = useMemo(
-    () => enrich(state.unassignedCharacters),
-    [state.unassignedCharacters, enrich]
-  );
-
-  // Persist state to localStorage
-  const saveState = useCallback((newState: TierListState) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
-      if (DEBUG) console.log('[useTierListState] Saved to localStorage');
-    } catch (err) {
-      console.error('[useTierListState] Failed to save state:', err);
+  // Characters explicitly stored as unassigned (respects saved order)
+  for (const id of stored.tiers['unassigned'] ?? []) {
+    const char = charMap.get(id);
+    if (char && !placed.has(id)) {
+      unassignedCharacters.push(char);
+      placed.add(id);
     }
-  }, []);
+  }
 
-  // Move character from one tier to another, optionally inserting before a sibling
-  const moveCharacterToTier = useCallback(
-    (character: Character, tierKey: TierKey, insertBeforeId?: string | null) => {
-      setState((prevState) => {
-        // Deep-copy tierList to avoid mutating prevState (important for React StrictMode
-        // double-invocations, which pass the same prevState reference both times)
-        const newState = {
-          ...prevState,
-          tierList: { ...prevState.tierList },
-        };
+  // Characters with no stored assignment at all (new / first load)
+  for (const char of allCharacters) {
+    if (!placed.has(char.id)) {
+      unassignedCharacters.push(char);
+    }
+  }
 
-        // Remove character from current location
-        if (newState.unassignedCharacters.some((c) => c.id === character.id)) {
-          newState.unassignedCharacters = newState.unassignedCharacters.filter(
-            (c) => c.id !== character.id
-          );
-        } else {
-          for (const tier of TIERS) {
-            if (newState.tierList[tier].some((c) => c.id === character.id)) {
-              newState.tierList[tier] = newState.tierList[tier].filter((c) => c.id !== character.id);
-              break;
-            }
-          }
-        }
+  return { tierList, unassignedCharacters };
+}
 
-        const insertBefore = (arr: Character[]): Character[] => {
-          if (!insertBeforeId) return [...arr, character];
-          const idx = arr.findIndex((c) => c.id === insertBeforeId);
-          if (idx < 0) return [...arr, character];
-          return [...arr.slice(0, idx), character, ...arr.slice(idx)];
-        };
+/**
+ * Custom hook for managing tier list state.
+ * Handles character assignments, reordering, and localStorage persistence.
+ *
+ * Storage format v2: persists only character IDs per tier, which means:
+ * - Group switches preserve all previously made assignments
+ * - Old format (v1) is automatically migrated on first load
+ */
+export function useTierListState(allCharacters: Character[]) {
+  const [assignments, setAssignments] = useState<StoredAssignments>(loadStored);
 
-        // Add to new location at the correct position
-        if (tierKey === 'unassigned') {
-          if (!newState.unassignedCharacters.some((c) => c.id === character.id)) {
-            newState.unassignedCharacters = insertBefore(newState.unassignedCharacters);
-          }
-        } else {
-          if (!newState.tierList[tierKey].some((c) => c.id === character.id)) {
-            newState.tierList[tierKey] = insertBefore(newState.tierList[tierKey]);
-          }
-        }
+  const { tierList, unassignedCharacters } = useMemo(
+    () => deriveState(assignments, allCharacters),
+    [assignments, allCharacters]
+  );
 
-        saveState(newState);
-        if (DEBUG) console.log(`[useTierListState] Moved ${character.name} to ${tierKey}`);
-        return newState;
+  const mutate = useCallback(
+    (updater: (prev: StoredAssignments) => StoredAssignments) => {
+      setAssignments((prev) => {
+        const next = updater(prev);
+        saveStored(next);
+        return next;
       });
     },
-    [saveState]
+    []
   );
 
-  // Swap positions of two characters in the same tier
+  /** Remove `id` from every tier array in the stored assignments */
+  function removeId(tiers: Partial<Record<TierKey, string[]>>, id: string): void {
+    for (const k of Object.keys(tiers) as TierKey[]) {
+      const arr = tiers[k];
+      if (arr) {
+        const idx = arr.indexOf(id);
+        if (idx !== -1) {
+          arr.splice(idx, 1);
+          return;
+        }
+      }
+    }
+  }
+
+  const moveCharacterToTier = useCallback(
+    (character: Character, targetTier: TierKey, insertBeforeId?: string | null) => {
+      mutate((prev) => {
+        const tiers: Partial<Record<TierKey, string[]>> = {};
+        for (const k of Object.keys(prev.tiers) as TierKey[]) {
+          tiers[k] = [...(prev.tiers[k] ?? [])];
+        }
+
+        removeId(tiers, character.id);
+
+        const target = [...(tiers[targetTier] ?? [])];
+        if (!target.includes(character.id)) {
+          if (insertBeforeId) {
+            const idx = target.indexOf(insertBeforeId);
+            if (idx !== -1) {
+              target.splice(idx, 0, character.id);
+            } else {
+              target.push(character.id);
+            }
+          } else {
+            target.push(character.id);
+          }
+        }
+        tiers[targetTier] = target;
+
+        if (DEBUG) console.log(`[useTierListState] Moved ${character.name} → ${targetTier}`);
+        return { version: 2, tiers };
+      });
+    },
+    [mutate]
+  );
+
+  /** Swap two characters within the same tier (by their display indices) */
   const swapInTier = useCallback(
     (tierKey: keyof TierList, fromIndex: number, toIndex: number) => {
-      setState((prevState) => {
-        const tier = prevState.tierList[tierKey];
-        if (fromIndex < 0 || fromIndex >= tier.length || toIndex < 0 || toIndex >= tier.length) {
-          return prevState;
+      mutate((prev) => {
+        const { tierList: derived } = deriveState(prev, allCharacters);
+        const tier = derived[tierKey];
+        if (
+          fromIndex < 0 ||
+          fromIndex >= tier.length ||
+          toIndex < 0 ||
+          toIndex >= tier.length
+        ) {
+          return prev;
         }
-        const newTier = [...tier];
-        [newTier[fromIndex], newTier[toIndex]] = [newTier[toIndex], newTier[fromIndex]];
-        const newState = {
-          ...prevState,
-          tierList: { ...prevState.tierList, [tierKey]: newTier },
-        };
-        saveState(newState);
-        if (DEBUG) console.log(`[useTierListState] Swapped items in ${tierKey}`);
-        return newState;
+
+        const fromId = tier[fromIndex].id;
+        const toId = tier[toIndex].id;
+        const arr = [...(prev.tiers[tierKey] ?? [])];
+        const fi = arr.indexOf(fromId);
+        const ti = arr.indexOf(toId);
+        if (fi !== -1 && ti !== -1) [arr[fi], arr[ti]] = [arr[ti], arr[fi]];
+
+        return { version: 2, tiers: { ...prev.tiers, [tierKey]: arr } };
       });
     },
-    [saveState]
+    [mutate, allCharacters]
   );
 
-  // Reorder unassigned characters
+  /** Reorder unassigned characters (by their display indices) */
   const reorderUnassigned = useCallback(
     (fromIndex: number, toIndex: number) => {
-      setState((prevState) => {
-        const chars = prevState.unassignedCharacters;
-        if (fromIndex < 0 || fromIndex >= chars.length || toIndex < 0 || toIndex >= chars.length) {
-          return prevState;
+      mutate((prev) => {
+        const { unassignedCharacters: derived } = deriveState(prev, allCharacters);
+        if (
+          fromIndex < 0 ||
+          fromIndex >= derived.length ||
+          toIndex < 0 ||
+          toIndex >= derived.length
+        ) {
+          return prev;
         }
-        const newChars = [...chars];
-        [newChars[fromIndex], newChars[toIndex]] = [newChars[toIndex], newChars[fromIndex]];
-        const newState = { ...prevState, unassignedCharacters: newChars };
-        saveState(newState);
-        if (DEBUG) console.log('[useTierListState] Reordered unassigned characters');
-        return newState;
+
+        const reordered = [...derived];
+        [reordered[fromIndex], reordered[toIndex]] = [reordered[toIndex], reordered[fromIndex]];
+
+        const activeIds = new Set(allCharacters.map((c) => c.id));
+        // Preserve inactive IDs at the front, then the reordered active IDs
+        const inactive = (prev.tiers['unassigned'] ?? []).filter((id) => !activeIds.has(id));
+        const newUnassigned = [...inactive, ...reordered.map((c) => c.id)];
+
+        return { version: 2, tiers: { ...prev.tiers, unassigned: newUnassigned } };
       });
     },
-    [saveState]
+    [mutate, allCharacters]
   );
 
-  // Check if all characters are assigned
-  const isComplete = useCallback((): boolean => {
-    const assigned = TIERS.reduce((sum, tier) => sum + state.tierList[tier].length, 0);
-    return assigned === allCharacters.length && state.unassignedCharacters.length === 0;
-  }, [state, allCharacters]);
-
-  // Get character count for a tier
-  const getTierCount = useCallback(
-    (tierKey: keyof TierList): number => {
-      return state.tierList[tierKey].length;
-    },
-    [state]
-  );
-
-  // Clear all assignments
+  /** Reset all active character assignments back to unassigned */
   const reset = useCallback(() => {
-    const newState: TierListState = {
-      tierList: {
-        S: [],
-        A: [],
-        B: [],
-        C: [],
-        D: [],
-      },
-      unassignedCharacters: [...allCharacters],
-    };
-    setState(newState);
-    saveState(newState);
-    if (DEBUG) console.log('[useTierListState] Reset tier list');
-  }, [allCharacters, saveState]);
+    mutate((prev) => {
+      const activeIds = new Set(allCharacters.map((c) => c.id));
+      const tiers: Partial<Record<TierKey, string[]>> = {};
+      for (const k of Object.keys(prev.tiers) as TierKey[]) {
+        const filtered = (prev.tiers[k] ?? []).filter((id) => !activeIds.has(id));
+        if (filtered.length > 0) tiers[k] = filtered;
+      }
+      if (DEBUG) console.log('[useTierListState] Reset tier list');
+      return { version: 2, tiers };
+    });
+  }, [mutate, allCharacters]);
+
+  const isComplete = useCallback(
+    (): boolean => unassignedCharacters.length === 0,
+    [unassignedCharacters]
+  );
+
+  const getTierCount = useCallback(
+    (tierKey: keyof TierList): number => tierList[tierKey].length,
+    [tierList]
+  );
 
   return {
-    tierList: enrichedTierList,
-    unassignedCharacters: enrichedUnassigned,
+    tierList,
+    unassignedCharacters,
     moveCharacterToTier,
     swapInTier,
     reorderUnassigned,
@@ -214,3 +285,4 @@ export function useTierListState(allCharacters: Character[]) {
     reset,
   };
 }
+

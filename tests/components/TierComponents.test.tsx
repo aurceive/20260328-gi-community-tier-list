@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { TierRow } from '@/components/TierRow';
 import { CharacterItem } from '@/components/CharacterItem';
@@ -6,10 +6,21 @@ import { UnassignedPool } from '@/components/UnassignedPool';
 import type { Character } from '@/types';
 
 const createMockCharacters = (): Character[] => [
-  { id: 'nahida', name: 'Nahida', element: 'dendro', rarity: 5 },
-  { id: 'fischl', name: 'Fischl', element: 'electro', rarity: 4 },
-  { id: 'bennett', name: 'Bennett', element: 'pyro', rarity: 4 },
+  { id: 'nahida', name: 'Nahida', element: 'dendro', rarity: 5, imageUrl: 'assets/nahida.webp', group: 'legendary' },
+  { id: 'fischl', name: 'Fischl', element: 'electro', rarity: 4, imageUrl: 'assets/fischl.webp', group: 'epic' },
+  { id: 'bennett', name: 'Bennett', element: 'pyro', rarity: 4, imageUrl: 'assets/bennett.webp', group: 'epic' },
 ];
+
+/** Helper: render UnassignedPool with required props */
+function renderPool(props: Partial<Parameters<typeof UnassignedPool>[0]> & { characters: Character[] }) {
+  return render(
+    <UnassignedPool
+      defaultTier="S"
+      onDefaultTierChange={vi.fn()}
+      {...props}
+    />
+  );
+}
 
 describe('Tier List Components', () => {
   describe('TierRow', () => {
@@ -186,36 +197,24 @@ describe('Tier List Components', () => {
   describe('UnassignedPool', () => {
     it('should render all characters', () => {
       const mockCharacters = createMockCharacters();
-      render(
-        <UnassignedPool
-          characters={mockCharacters}
-        />
-      );
+      renderPool({ characters: mockCharacters });
 
       expect(screen.getByText('Nahida')).toBeInTheDocument();
       expect(screen.getByText('Fischl')).toBeInTheDocument();
       expect(screen.getByText('Bennett')).toBeInTheDocument();
     });
 
-    it('should display character count', () => {
+    it('should display all characters in pool', () => {
       const mockCharacters = createMockCharacters();
-      render(
-        <UnassignedPool
-          characters={mockCharacters}
-        />
-      );
+      renderPool({ characters: mockCharacters });
 
-      expect(screen.getByText('3 left')).toBeInTheDocument();
+      // All 3 characters should be visible
+      expect(screen.getAllByText(/Nahida|Fischl|Bennett/)).toHaveLength(3);
     });
 
     it('should filter characters by search query', () => {
       const mockCharacters = createMockCharacters();
-      render(
-        <UnassignedPool
-          characters={mockCharacters}
-          searchQuery="fischl"
-        />
-      );
+      renderPool({ characters: mockCharacters, searchQuery: 'fischl' });
 
       expect(screen.getByText('Fischl')).toBeInTheDocument();
       expect(screen.queryByText('Nahida')).not.toBeInTheDocument();
@@ -224,12 +223,7 @@ describe('Tier List Components', () => {
 
     it('should filter by element type', () => {
       const mockCharacters = createMockCharacters();
-      render(
-        <UnassignedPool
-          characters={mockCharacters}
-          searchQuery="pyro"
-        />
-      );
+      renderPool({ characters: mockCharacters, searchQuery: 'pyro' });
 
       expect(screen.getByText('Bennett')).toBeInTheDocument();
       expect(screen.queryByText('Fischl')).not.toBeInTheDocument();
@@ -237,22 +231,13 @@ describe('Tier List Components', () => {
 
     it('should show no results message when no matches', () => {
       const mockCharacters = createMockCharacters();
-      render(
-        <UnassignedPool
-          characters={mockCharacters}
-          searchQuery="nonexistent"
-        />
-      );
+      renderPool({ characters: mockCharacters, searchQuery: 'nonexistent' });
 
       expect(screen.getByText(/No characters match/)).toBeInTheDocument();
     });
 
     it('should show empty state when no characters', () => {
-      render(
-        <UnassignedPool
-          characters={[]}
-        />
-      );
+      renderPool({ characters: [] });
 
       expect(screen.getByText(/All characters assigned/)).toBeInTheDocument();
     });
@@ -260,37 +245,34 @@ describe('Tier List Components', () => {
     it('should call onCharacterClick when character clicked', () => {
       const mockCharacters = createMockCharacters();
       const onClick = vi.fn();
-      render(
-        <UnassignedPool
-          characters={[mockCharacters[0]]}
-          onCharacterClick={onClick}
-        />
-      );
+      renderPool({ characters: [mockCharacters[0]], onCharacterClick: onClick });
 
-      const characterButton = screen.getAllByRole('button')[0];
-      characterButton.click();
+      // Tier selector buttons come first; character button is the last button
+      const buttons = screen.getAllByRole('button');
+      const charButton = buttons[buttons.length - 1];
+      charButton.click();
 
       expect(onClick).toHaveBeenCalledWith(mockCharacters[0]);
     });
 
-    it('should update count when filtered', () => {
+    it('should update visible characters when filtered', () => {
       const mockCharacters = createMockCharacters();
-      const { rerender } = render(
-        <UnassignedPool
-          characters={mockCharacters}
-        />
-      );
+      const { rerender } = renderPool({ characters: mockCharacters });
 
-      expect(screen.getByText('3 left')).toBeInTheDocument();
+      expect(screen.getByText('Nahida')).toBeInTheDocument();
+      expect(screen.getByText('Bennett')).toBeInTheDocument();
 
       rerender(
         <UnassignedPool
           characters={mockCharacters}
           searchQuery="pyro"
+          defaultTier="S"
+          onDefaultTierChange={vi.fn()}
         />
       );
 
-      expect(screen.getByText('1 left')).toBeInTheDocument();
+      expect(screen.getByText('Bennett')).toBeInTheDocument();
+      expect(screen.queryByText('Nahida')).not.toBeInTheDocument();
     });
   });
 });

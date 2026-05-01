@@ -1,4 +1,4 @@
-import type { Character } from '@/types';
+import type { Character, CharacterGroup } from '@/types';
 import { CHARACTER_DATA_URL, DEBUG } from '@/config';
 
 /**
@@ -20,14 +20,16 @@ export async function loadCharacters(): Promise<Character[]> {
       );
     }
 
-    const characters: Character[] = await response.json();
+    const raw: unknown = await response.json();
 
-    if (!Array.isArray(characters)) {
+    if (!Array.isArray(raw)) {
       throw new Error('Invalid character data format: expected array');
     }
 
-    // Validate character data
-    const validCharacters = characters.filter(validateCharacter);
+    // Assign group first (so validateCharacter can check it), then validate
+    const validCharacters = raw
+      .map(assignGroup)
+      .filter(validateCharacter);
 
     if (DEBUG) {
       console.log(`[CharacterLoader] Loaded ${validCharacters.length} valid characters`);
@@ -40,6 +42,33 @@ export async function loadCharacters(): Promise<Character[]> {
     console.error('[CharacterLoader] Error:', message);
     throw new Error(`Failed to load characters: ${message}`);
   }
+}
+
+/**
+ * Assign the character group based on rarity, with explicit JSON override for
+ * special cases (Travelers are rarity 5 but belong to the 'epic' group).
+ * Operates on raw unknown JSON data — must be called before validateCharacter.
+ */
+function assignGroup(raw: unknown): unknown {
+  if (typeof raw !== 'object' || raw === null) return raw;
+  const obj = raw as Record<string, unknown>;
+  if (obj.group === 'epic' || obj.group === 'legendary') {
+    return obj;
+  }
+  return { ...obj, group: obj.rarity === 5 ? 'legendary' : 'epic' };
+}
+
+/**
+ * Filter characters by one or more active groups.
+ * Pass the full character list and the groups to include.
+ */
+export function filterByGroups(
+  characters: Character[],
+  groups: CharacterGroup[]
+): Character[] {
+  if (groups.length === 0) return [];
+  const groupSet = new Set<CharacterGroup>(groups);
+  return characters.filter((c) => groupSet.has(c.group));
 }
 
 /**
@@ -58,7 +87,8 @@ function validateCharacter(character: unknown): character is Character {
     typeof obj.element === 'string' &&
     typeof obj.rarity === 'number' &&
     (obj.rarity === 4 || obj.rarity === 5) &&
-    typeof obj.imageUrl === 'string';
+    typeof obj.imageUrl === 'string' &&
+    (obj.group === 'legendary' || obj.group === 'epic');
 
   const validElements = [
     'pyro',

@@ -4,10 +4,10 @@ import { useTierListState } from '@/hooks/useTierListState';
 import type { Character } from '@/types';
 
 const createMockCharacters = (): Character[] => [
-  { id: 'nahida', name: 'Nahida', element: 'dendro', rarity: 5 },
-  { id: 'fischl', name: 'Fischl', element: 'electro', rarity: 4 },
-  { id: 'bennett', name: 'Bennett', element: 'pyro', rarity: 4 },
-  { id: 'hu-tao', name: 'Hu Tao', element: 'pyro', rarity: 5 },
+  { id: 'nahida', name: 'Nahida', element: 'dendro', rarity: 5, imageUrl: 'assets/nahida.webp', group: 'legendary' },
+  { id: 'fischl', name: 'Fischl', element: 'electro', rarity: 4, imageUrl: 'assets/fischl.webp', group: 'epic' },
+  { id: 'bennett', name: 'Bennett', element: 'pyro', rarity: 4, imageUrl: 'assets/bennett.webp', group: 'epic' },
+  { id: 'hu-tao', name: 'Hu Tao', element: 'pyro', rarity: 5, imageUrl: 'assets/hu-tao.webp', group: 'legendary' },
 ];
 
 describe('useTierListState', () => {
@@ -162,10 +162,12 @@ describe('useTierListState', () => {
       result.current.moveCharacterToTier(mockCharacters[0], 'S');
     });
 
-    const stored = localStorage.getItem('gi_tier_list_draft');
+    const stored = localStorage.getItem('gi_tier_list_v2');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored!);
-    expect(parsed.tierList.S).toHaveLength(1);
+    expect(parsed.version).toBe(2);
+    expect(parsed.tiers.S).toHaveLength(1);
+    expect(parsed.tiers.S[0]).toBe('nahida');
 
     // Rerender with new hook instance should load from localStorage
     const { result: result2 } = renderHook(() => useTierListState(mockCharacters));
