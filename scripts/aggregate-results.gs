@@ -6,7 +6,8 @@
  *   Row 2+ — responses with tier values: S, A, B, C, D
  *
  * Target sheet: "Results" (created if missing)
- *   Columns: Character | Total Points | Average Points
+ *   Columns: Character | Total Points | Average Points | Scaled Points
+ *            | S Count | S % | A Count | A % | B Count | B % | C Count | C % | D Count | D %
  *   Sorted by Total Points descending.
  *
  * Scoring: D=1, C=2, B=3, A=4, S=5 (bottom tier = 1, top tier = number of tiers).
@@ -53,9 +54,12 @@ function aggregateResults() {
   }
 
   // Aggregate points per character
-  var totals = {};   // character -> total points
+  var totals = {};      // character -> total points
+  var tierCounts = {};  // character -> { S:0, A:0, B:0, C:0, D:0 }
+  var TIERS = ['S', 'A', 'B', 'C', 'D'];
   for (var i = 0; i < charCols.length; i++) {
     totals[charCols[i].name] = 0;
+    tierCounts[charCols[i].name] = { S: 0, A: 0, B: 0, C: 0, D: 0 };
   }
 
   var respondentCount = 0;
@@ -68,6 +72,7 @@ function aggregateResults() {
       var pts = TIER_POINTS[tier];
       if (pts !== undefined) {
         totals[charCols[j].name] += pts;
+        tierCounts[charCols[j].name][tier]++;
       }
     }
   }
@@ -75,11 +80,15 @@ function aggregateResults() {
   // Build sorted results array
   var results = [];
   for (var name in totals) {
-    results.push([
-      name,
-      totals[name],
-      respondentCount > 0 ? Math.round((totals[name] / respondentCount) * 100) / 100 : 0,
-    ]);
+    var avg = respondentCount > 0 ? Math.round((totals[name] / respondentCount) * 100) / 100 : 0;
+    var scaled = Math.round(((avg - 1) / 4) * 5 * 100) / 100;
+    var row = [name, totals[name], avg, scaled];
+    for (var t = 0; t < TIERS.length; t++) {
+      var cnt = tierCounts[name][TIERS[t]];
+      var pct = respondentCount > 0 ? cnt / respondentCount : 0;
+      row.push(cnt, pct);
+    }
+    results.push(row);
   }
   results.sort(function (a, b) { return b[1] - a[1]; });
 
@@ -90,18 +99,30 @@ function aggregateResults() {
   }
   dst.clear();
 
+  var NUM_COLS = 14;
+
   // Header
-  dst.getRange(1, 1, 1, 3).setValues([['Character', 'Total Points', 'Average Points']]);
-  dst.getRange(1, 1, 1, 3).setFontWeight('bold');
+  dst.getRange(1, 1, 1, NUM_COLS).setValues([[
+    'Character', 'Total Points', 'Average Points', 'Scaled Points',
+    'S Count', 'S %', 'A Count', 'A %', 'B Count', 'B %',
+    'C Count', 'C %', 'D Count', 'D %'
+  ]]);
+  dst.getRange(1, 1, 1, NUM_COLS).setFontWeight('bold');
 
   // Data
   if (results.length > 0) {
-    dst.getRange(2, 1, results.length, 3).setValues(results);
+    dst.getRange(2, 1, results.length, NUM_COLS).setValues(results);
   }
 
   // Formatting
-  dst.getRange(2, 3, Math.max(results.length, 1), 1).setNumberFormat('0.00');
-  dst.autoResizeColumns(1, 3);
+  var dataRows = Math.max(results.length, 1);
+  dst.getRange(2, 3, dataRows, 1).setNumberFormat('0.00'); // Average Points
+  dst.getRange(2, 4, dataRows, 1).setNumberFormat('0.00'); // Scaled Points
+  // Percentage columns: 6, 8, 10, 12, 14
+  for (var p = 0; p < 5; p++) {
+    dst.getRange(2, 6 + p * 2, dataRows, 1).setNumberFormat('0.0%');
+  }
+  dst.autoResizeColumns(1, NUM_COLS);
 
   // Info row
   var infoRow = results.length + 3;
